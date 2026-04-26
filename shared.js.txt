@@ -1,0 +1,269 @@
+/* ═══════════════════════════════════════
+   shared.js — Mortgage & Loans
+   Global config, helpers, and utilities
+   ═══════════════════════════════════════ */
+
+/* ── Config (update annually) ── */
+const MT_CONFIG = {
+  conformingLimit: 806500,
+  highCostLimit: 1209750,
+  fhaFloor: 524225,
+  fhaCeiling: 1209750
+};
+
+/* ── Reduced Motion Check ── */
+const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* ── Safe Number Parser ── */
+function safeParamNumber(val, min, max) {
+  let n = parseFloat(val);
+  if (isNaN(n)) n = 0;
+  if (min !== undefined && n < min) n = min;
+  if (max !== undefined && n > max) n = max;
+  return n;
+}
+
+/* ── Mortgage Calculation ── */
+function calculateMortgage(principal, annualRate, years) {
+  principal = Math.max(0, principal);
+  annualRate = Math.max(0, annualRate);
+  years = Math.max(1, years);
+
+  const r = annualRate / 100 / 12;
+  const n = years * 12;
+  let monthlyPayment;
+
+  if (r === 0) {
+    monthlyPayment = principal / n;
+  } else {
+    monthlyPayment = principal * (r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1);
+  }
+
+  const totalPayment = monthlyPayment * n;
+  const totalInterest = totalPayment - principal;
+  return { monthlyPayment, totalPayment, totalInterest };
+}
+
+/* ── Amortization Schedule Generator ── */
+function generateAmortization(principal, annualRate, years, extraPayment) {
+  principal = Math.max(0, principal);
+  annualRate = Math.max(0, annualRate);
+  years = Math.max(1, Math.min(years, 50));
+  extraPayment = Math.max(0, extraPayment || 0);
+
+  const r = annualRate / 100 / 12;
+  const n = years * 12;
+  const base = calculateMortgage(principal, annualRate, years).monthlyPayment;
+  let balance = principal;
+  const schedule = [];
+  let totalInterest = 0;
+
+  for (let m = 0; m < n && balance > 0.01; m++) {
+    const interest = balance * r;
+    let principalPay = base - interest + extraPayment;
+    if (principalPay > balance) principalPay = balance;
+    if (principalPay < 0) break;
+    balance = Math.max(0, balance - principalPay);
+    totalInterest += interest;
+    schedule.push({
+      month: m + 1,
+      principal: principalPay,
+      interest: interest,
+      balance: balance
+    });
+  }
+
+  return { schedule, totalInterest, totalPayment: principal + totalInterest };
+}
+
+/* ── Currency Formatters ── */
+function formatCurrency(v) {
+  const sign = v < 0 ? '-' : '';
+  return sign + '$' + Math.abs(Math.round(v)).toLocaleString('en-US');
+}
+
+function formatCurrencyDecimal(v) {
+  const sign = v < 0 ? '-' : '';
+  return sign + '$' + Math.abs(v).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+/* ── Debounce ── */
+function debounce(fn, ms) {
+  let timer;
+  return function (...args) {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn.apply(this, args), ms);
+  };
+}
+
+/* ── Analytics Track ── */
+function track(event, data) {
+  if (typeof gtag === 'function') {
+    gtag('event', event, data);
+  }
+}
+
+
+/* ═══════════════════════════════════════
+   DOM Ready — Global UI Initialization
+   ═══════════════════════════════════════ */
+document.addEventListener('DOMContentLoaded', function () {
+
+  /* ──────────────────────────────────────
+     0. Inject Skip-to-Content Link
+     ────────────────────────────────────── */
+  if (!document.querySelector('.skip-link')) {
+    var skipLink = document.createElement('a');
+    skipLink.href = '#main-content';
+    skipLink.className = 'skip-link';
+    skipLink.textContent = 'Skip to content';
+    document.body.insertBefore(skipLink, document.body.firstChild);
+  }
+
+  /* ──────────────────────────────────────
+     1. Add id="main-content" to <main>
+     ────────────────────────────────────── */
+  var mainEl = document.querySelector('main.page-content');
+  if (mainEl && !mainEl.id) {
+    mainEl.id = 'main-content';
+  }
+
+  /* ──────────────────────────────────────
+     2. Inject Cookie Consent Banner
+     ────────────────────────────────────── */
+  if (!document.getElementById('cookieConsent')) {
+    var banner = document.createElement('div');
+    banner.className = 'cookie-consent';
+    banner.id = 'cookieConsent';
+    banner.setAttribute('role', 'dialog');
+    banner.setAttribute('aria-label', 'Cookie consent');
+    banner.setAttribute('aria-describedby', 'cc-text');
+    banner.innerHTML =
+      '<p id="cc-text">This site uses cookies for analytics and third-party advertising (Google AdSense). ' +
+      'By continuing to use this site you consent to our use of cookies. ' +
+      '<a href="privacy-policy.html">Privacy Policy</a></p>' +
+      '<div class="cc-actions">' +
+        '<button class="cc-btn cc-accept" onclick="MTConsent.accept()">Accept All</button>' +
+        '<button class="cc-btn cc-decline" onclick="MTConsent.decline()">Essential Only</button>' +
+      '</div>';
+    document.body.appendChild(banner);
+  }
+
+  /* ──────────────────────────────────────
+     3. Consent Manager
+     ────────────────────────────────────── */
+  window.MTConsent = {
+    accept: function () {
+      try { localStorage.setItem('cookieConsent', 'accepted'); } catch (e) {}
+      var el = document.getElementById('cookieConsent');
+      if (el) el.classList.remove('show');
+      if (window.MTAnalytics && window.MTAnalytics.grant) {
+        window.MTAnalytics.grant();
+      }
+    },
+    decline: function () {
+      try { localStorage.setItem('cookieConsent', 'declined'); } catch (e) {}
+      var el = document.getElementById('cookieConsent');
+      if (el) el.classList.remove('show');
+      if (window.MTAnalytics && window.MTAnalytics.deny) {
+        window.MTAnalytics.deny();
+      }
+    },
+    getState: function () {
+      try { return localStorage.getItem('cookieConsent'); } catch (e) { return null; }
+    }
+  };
+
+  // Show banner if no consent recorded
+  try {
+    var consent = localStorage.getItem('cookieConsent');
+    if (!consent) {
+      setTimeout(function () {
+        var el = document.getElementById('cookieConsent');
+        if (el) el.classList.add('show');
+      }, 1000);
+    }
+  } catch (e) {
+    setTimeout(function () {
+      var el = document.getElementById('cookieConsent');
+      if (el) el.classList.add('show');
+    }, 1000);
+  }
+
+  /* ──────────────────────────────────────
+     4. Navbar Toggle
+     ────────────────────────────────────── */
+  var toggle = document.querySelector('.navbar-toggle');
+  var nav = document.querySelector('.navbar-nav');
+
+  if (toggle && nav) {
+    toggle.addEventListener('click', function () {
+      var expanded = toggle.getAttribute('aria-expanded') === 'true';
+      toggle.setAttribute('aria-expanded', String(!expanded));
+      nav.classList.toggle('open');
+    });
+
+    // Close nav on link click (mobile)
+    nav.querySelectorAll('.nav-link').forEach(function (link) {
+      link.addEventListener('click', function () {
+        if (nav.classList.contains('open')) {
+          nav.classList.remove('open');
+          toggle.setAttribute('aria-expanded', 'false');
+        }
+      });
+    });
+
+    // Close nav on Escape
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && nav.classList.contains('open')) {
+        nav.classList.remove('open');
+        toggle.setAttribute('aria-expanded', 'false');
+        toggle.focus();
+      }
+    });
+  }
+
+  /* ──────────────────────────────────────
+     5. Scroll Animations (IntersectionObserver)
+     ────────────────────────────────────── */
+  if (!prefersReducedMotion) {
+    var animatedEls = document.querySelectorAll('[data-animate]');
+    if (animatedEls.length > 0 && 'IntersectionObserver' in window) {
+      var observer = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          if (entry.isIntersecting) {
+            var type = entry.target.getAttribute('data-animate');
+            entry.target.style.animation = type + ' 0.6s ease forwards';
+            observer.unobserve(entry.target);
+          }
+        });
+      }, { threshold: 0.1 });
+
+      animatedEls.forEach(function (el) {
+        el.style.opacity = '0';
+        observer.observe(el);
+      });
+    }
+  } else {
+    document.querySelectorAll('[data-animate]').forEach(function (el) {
+      el.style.opacity = '1';
+      el.style.animation = 'none';
+    });
+  }
+
+  /* ──────────────────────────────────────
+     6. Skip-to-content focus handler
+     ────────────────────────────────────── */
+  var skip = document.querySelector('.skip-link');
+  if (skip) {
+    skip.addEventListener('click', function (e) {
+      e.preventDefault();
+      var target = document.getElementById('main-content');
+      if (target) {
+        target.setAttribute('tabindex', '-1');
+        target.focus();
+      }
+    });
+  }
+
+});

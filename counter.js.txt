@@ -1,0 +1,112 @@
+/* ═══════════════════════════════════════
+   counter.js — Mortgage & Loans
+   Visitor counter widget (privacy-safe)
+   ═══════════════════════════════════════ */
+
+(function () {
+  'use strict';
+
+  var widget = document.getElementById('counter-widget');
+  if (!widget) return;
+
+  var onlineEl = widget.querySelector('.cw-online');
+  var viewsEl = widget.querySelector('.cw-views');
+  var visitorsEl = widget.querySelector('.cw-visitors');
+
+  /* ── Consent Check ── */
+  function hasConsent() {
+    try {
+      var consent = localStorage.getItem('cookieConsent');
+      return consent === 'accepted';
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /* ── Session ID ── */
+  var sessionId;
+  try {
+    sessionId = sessionStorage.getItem('mt_session');
+    if (!sessionId) {
+      sessionId = Date.now().toString(36) + Math.random().toString(36).substring(2, 7);
+      sessionStorage.setItem('mt_session', sessionId);
+    }
+  } catch (e) {
+    sessionId = Date.now().toString(36);
+  }
+
+  /* ── Data Management ── */
+  var KEY = 'mt_counter';
+  var EXPIRY_DAYS = 30;
+
+  function loadData() {
+    try {
+      var raw = localStorage.getItem(KEY);
+      if (!raw) return null;
+      var data = JSON.parse(raw);
+
+      // Check if data is expired
+      if (data.savedAt && (Date.now() - data.savedAt) > EXPIRY_DAYS * 86400000) {
+        localStorage.removeItem(KEY);
+        return null;
+      }
+      return data;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function saveData(data) {
+    data.savedAt = Date.now();
+    try {
+      localStorage.setItem(KEY, JSON.stringify(data));
+    } catch (e) {}
+  }
+
+  function cleanVisitors(visitors) {
+    // Keep only sessions from last 30 days
+    var cutoff = Date.now() - (EXPIRY_DAYS * 86400000);
+    return visitors.filter(function (v) {
+      // Session IDs start with base36 timestamp — decode approximate time
+      try {
+        var ts = parseInt(v.substring(0, 7), 36);
+        return ts > cutoff;
+      } catch (e) {
+        return false;
+      }
+    });
+  }
+
+  /* ── Update Counters ── */
+  var data = loadData() || { views: 0, visitors: [] };
+
+  // Clean expired visitors
+  data.visitors = cleanVisitors(data.visitors || []);
+
+  // Increment views
+  data.views = (data.views || 0) + 1;
+
+  // Track unique visitor
+  if (data.visitors.indexOf(sessionId) === -1) {
+    data.visitors.push(sessionId);
+  }
+
+  saveData(data);
+
+  // Update display
+  if (viewsEl) viewsEl.textContent = data.views.toLocaleString();
+  if (visitorsEl) visitorsEl.textContent = data.visitors.length.toLocaleString();
+
+  // Online count: show "—" instead of fake number
+  // Real implementation would use WebSocket or server-side tracking
+  if (onlineEl) onlineEl.textContent = '—';
+
+  /* ── Listen for consent changes ── */
+  window.addEventListener('storage', function (e) {
+    if (e.key === 'cookieConsent' && e.newValue === 'declined') {
+      // Clear stored data if user declines
+      try { localStorage.removeItem(KEY); } catch (err) {}
+    }
+  });
+
+})();

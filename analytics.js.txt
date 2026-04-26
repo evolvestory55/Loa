@@ -1,0 +1,101 @@
+/* ═══════════════════════════════════════
+   analytics.js — Mortgage & Loads
+   Analytics initialization with consent
+   ═══════════════════════════════════════ */
+
+(function () {
+  'use strict';
+
+  var GA_ID = 'G-XXXXXXXXXX'; // Replace with real measurement ID
+
+  /* ── Consent Check ── */
+  function getConsentState() {
+    try {
+      return localStorage.getItem('cookieConsent');
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /* ── Google Consent Mode v2 Defaults ── */
+  window.dataLayer = window.dataLayer || [];
+  function gtag() { dataLayer.push(arguments); }
+  window.gtag = gtag;
+
+  // Set default consent state BEFORE loading GA
+  gtag('consent', 'default', {
+    'ad_storage': 'denied',
+    'ad_user_data': 'denied',
+    'ad_personalization': 'denied',
+    'analytics_storage': 'denied',
+    'wait_for_update': 500
+  });
+
+  /* ── Load GA if consent exists ── */
+  function loadGoogleAnalytics() {
+    var script = document.createElement('script');
+    script.async = true;
+    script.src = 'https://www.googletagmanager.com/gtag/js?id=' + GA_ID;
+    script.onerror = function () {
+      // Silently fail — ad blocker or network error
+    };
+    document.head.appendChild(script);
+
+    gtag('js', new Date());
+    gtag('config', GA_ID);
+  }
+
+  function grantConsent() {
+    gtag('consent', 'update', {
+      'ad_storage': 'granted',
+      'ad_user_data': 'granted',
+      'ad_personalization': 'granted',
+      'analytics_storage': 'granted'
+    });
+  }
+
+  function denyConsent() {
+    gtag('consent', 'update', {
+      'ad_storage': 'denied',
+      'ad_user_data': 'denied',
+      'ad_personalization': 'denied',
+      'analytics_storage': 'denied'
+    });
+  }
+
+  /* ── Initialize based on consent ── */
+  var consent = getConsentState();
+
+  if (consent === 'accepted') {
+    grantConsent();
+    loadGoogleAnalytics();
+  } else if (consent === 'declined') {
+    denyConsent();
+  }
+  // If null (no choice yet), defaults are already 'denied'
+
+  /* ── Listen for consent changes (from cookie banner) ── */
+  window.addEventListener('storage', function (e) {
+    if (e.key === 'cookieConsent') {
+      if (e.newValue === 'accepted') {
+        grantConsent();
+        loadGoogleAnalytics();
+      } else if (e.newValue === 'declined') {
+        denyConsent();
+      }
+    }
+  });
+
+  /* ── Expose consent helpers for cookie banner ── */
+  window.MTAnalytics = {
+    grant: function () {
+      grantConsent();
+      loadGoogleAnalytics();
+    },
+    deny: function () {
+      denyConsent();
+    },
+    getState: getConsentState
+  };
+
+})();
